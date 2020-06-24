@@ -2,6 +2,8 @@ import argparse
 import glob
 import os
 import random
+import re
+import sys
 
 # from spacenetutilities.labeltools import sbdLabel
 from spacenetutilities import geoTools as gT
@@ -292,8 +294,20 @@ if __name__ == '__main__':
         listofRaster = sorted(glob.glob(os.path.join(fullPathImageDirectory, '*.tif')))
         listofgeojson = sorted(glob.glob(os.path.join(fullPathGeoJsonDirectory, '*.geojson')))
 
+        print('Removing problematic files')
+        problematic_files = ['AOI_2_Vegas_img1240', 'AOI_2_Vegas_img194', 'AOI_2_Vegas_img2024']
+        blacklist = re.compile('|'.join([re.escape(word) for word in problematic_files]))
+        listofRaster = [word for word in listofRaster if not blacklist.search(word)]
+        listofgeojson = [word for word in listofgeojson if not blacklist.search(word)]
+            
         print('fullpathImageDirectory = {}'.format(fullPathImageDirectory))
         print('fullpathGeoJsonDirectory = {}'.format(fullPathGeoJsonDirectory))
+
+        # # Subsetting to just first 1000 to speed up processing time, can filter out later
+        # listofRaster = listofRaster[:1000]
+        # listofgeojson = listofgeojson[:1000]
+
+        print(len(listofRaster), len(listofgeojson))
         if len(listofRaster) != len(listofgeojson):
             print('Error lists do not match fix source errors')
 
@@ -301,28 +315,37 @@ if __name__ == '__main__':
 
         else:
 
+            count = 0
+            error_files = []
             for rasterImage, geoJson in zip(listofRaster, listofgeojson):
+                print('Working on: {} and geoJson: {}'.format(rasterImage, geoJson))
+                try:
+                    chipSummaryList = processRasterChip(rasterImage, srcImageryDirectory,
+                                                        geoJson, args.geoJsonDirectory,
+                                                        outputDirectory=fullPathAnnotationsDirectory,
+                                                        imagePixSize=args.imgSizePix, clipOverlap=0.0, randomClip=False,
+                                                        minpartialPerc=0.0,
+                                                        outputPrefix=''
+                                                        )
 
-                chipSummaryList = processRasterChip(rasterImage, srcImageryDirectory,
-                                                    geoJson, args.geoJsonDirectory,
-                                                    outputDirectory=fullPathAnnotationsDirectory,
-                                                    imagePixSize=args.imgSizePix, clipOverlap=0.0, randomClip=False,
-                                                    minpartialPerc=0.0,
-                                                    outputPrefix=''
-                                                    )
+                    entryListTmp = processChipSummaryList(chipSummaryList,
+                                                          outputDirectory=os.path.join(fullPathAnnotationsDirectory, 'annotations'),
+                                                          annotationType=args.annotationType,
+                                                          outputFormat=outputFileType,
+                                                          outputPixType=outputDataType,
+                                                          datasetName='spacenetV2',
+                                                          folder_name='folder_name',
+                                                          bboxResize= args.boundingBoxResize
+                                          )
+                except:
+                    error_files.append(rasterImage)
+                else:
+                    entryList.extend(entryListTmp)
+                    count += 1
+                    print('Finished {} images'.format(count))
 
-                entryListTmp = processChipSummaryList(chipSummaryList,
-                                                      outputDirectory=os.path.join(fullPathAnnotationsDirectory, 'annotations'),
-                                                      annotationType=args.annotationType,
-                                                      outputFormat=outputFileType,
-                                                      outputPixType=outputDataType,
-                                                      datasetName='spacenetV2',
-                                                      folder_name='folder_name',
-                                                      bboxResize= args.boundingBoxResize
-                                       )
-                print(entryListTmp)
-                entryList.extend(entryListTmp)
-
+    print('Before Creating Train Test Split Summary')
+    print('printing length of entry list: {}'.format(len(entryList)))
     createTrainTestSplitSummary(entryList,
                                 trainTestSplit=args.trainTestSplit,
                                 outputDirectory=fullPathAnnotationsDirectory,
@@ -330,4 +353,5 @@ if __name__ == '__main__':
                                 annotationType=args.annotationType,
                                 shuffleList=True
                                 )
+    print('After Train Test Split Summary')
 
